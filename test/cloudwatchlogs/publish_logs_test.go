@@ -65,8 +65,6 @@ func TestWriteLogsToCloudWatch(t *testing.T) {
 	instanceId := awsservice.GetInstanceId()
 	log.Printf("Found instance id %s", instanceId)
 
-	defer awsservice.DeleteLogGroupAndStream(instanceId, instanceId)
-
 	f, err := os.Create(logFilePath)
 	if err != nil {
 		t.Fatalf("Error occurred creating log file for writing: %v", err)
@@ -126,8 +124,6 @@ func TestRotatingLogsDoesNotSkipLines(t *testing.T) {
 	log.Printf("Found instance id %s", instanceId)
 	logGroup := instanceId
 	logStream := instanceId + "Rotated"
-
-	defer awsservice.DeleteLogGroupAndStream(logGroup, logStream)
 
 	start := time.Now()
 	common.CopyFile(cfgFilePath, configOutputPath)
