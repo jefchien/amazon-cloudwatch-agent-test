@@ -1,0 +1,19 @@
+monitor:
+  process_name: amazon-cloudwatch-agent
+  metrics_namespace: LoadTest
+  region: us-east-1
+  collect_interval: 10s
+  flush_interval: 30s
+  dimensions:
+    Process: CloudWatch Agent
+    Threads: 1
+    TPS: 1000
+log_generator:
+  file_path: /home/ec2-user/loadtest/testdata/test.log
+  timestamp_format: 2006-01-02T15:04:05.000
+  lines_per_second: 1000
+  line_length: 1000
+  max_file_size: 100
+  max_file_count: 3
+  start_delay: 1m
+duration: 30m
