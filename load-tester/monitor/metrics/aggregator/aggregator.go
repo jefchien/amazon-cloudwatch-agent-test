@@ -5,6 +5,7 @@ package aggregator
 
 import (
 	"context"
+	"errors"
 	"load-tester/monitor/metrics"
 	"load-tester/monitor/metrics/distribution"
 	"log"
@@ -17,48 +18,67 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 )
 
+type internalKey struct {
+	name         string
+	dimensionStr string
+}
+
 type Key struct {
 	Name       string
 	Dimensions map[string]string
 }
 
-func (key Key) String() string {
-	if len(key.Dimensions) == 0 {
-		return key.Name
+func (k Key) validate() error {
+	if k.Name == "" {
+		return errors.New("metric name cannot be empty")
 	}
-	pairs := make([]string, 0, len(key.Dimensions))
-	for k, v := range key.Dimensions {
+	return nil
+}
+
+func (k Key) toInternalKey() internalKey {
+	return internalKey{
+		name:         k.Name,
+		dimensionStr: toDimensionStr(k.Dimensions),
+	}
+}
+
+func toDimensionStr(dimensions map[string]string) string {
+	pairs := make([]string, 0, len(dimensions))
+	for k, v := range dimensions {
 		pairs = append(pairs, k+"="+v)
 	}
 	sort.Strings(pairs)
-	return key.Name + "|" + strings.Join(pairs, ";")
+	return strings.Join(pairs, ";")
 }
 
-func toKey(str string) Key {
-	parts := strings.Split(str, "|")
-	if len(parts) == 1 {
-		return Key{Name: str}
+func fromDimensionStr(dimensionStr string) []types.Dimension {
+	if len(dimensionStr) == 0 {
+		return nil
 	}
-	pairs := strings.Split(parts[1], ";")
-	dimensions := make(map[string]string, len(pairs))
+	pairs := strings.Split(dimensionStr, ";")
+	dimensions := make([]types.Dimension, 0, len(pairs))
 	for _, pair := range pairs {
 		kv := strings.Split(pair, "=")
-		if len(kv) == 2 {
-			dimensions[kv[0]] = kv[1]
+		if len(kv) != 2 {
+			continue
 		}
+		dimensions = append(dimensions, types.Dimension{
+			Name:  aws.String(kv[0]),
+			Value: aws.String(kv[1]),
+		})
 	}
-	return Key{Name: parts[0], Dimensions: dimensions}
+	return dimensions
 }
 
 type MetricAggregator struct {
-	metrics    map[string]distribution.Distribution
+	metrics    map[internalKey]distribution.Distribution
 	dimensions []types.Dimension
 	mu         sync.Mutex
 }
 
 func NewMetricAggregator(dimensions map[string]string) *MetricAggregator {
 	return &MetricAggregator{
-		metrics:    make(map[string]distribution.Distribution),
+		metrics:    make(map[internalKey]distribution.Distribution),
 		dimensions: toDimensions(dimensions),
 	}
 }
@@ -79,14 +99,18 @@ func (m *MetricAggregator) Start(ctx context.Context, metricsChan <-chan *metric
 }
 
 func (m *MetricAggregator) Add(key Key, entry distribution.Entry) error {
+	if err := key.validate(); err != nil {
+		return err
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	keyStr := key.String()
-	if _, ok := m.metrics[keyStr]; !ok {
-		m.metrics[keyStr] = distribution.NewRegularDistribution()
+	ik := key.toInternalKey()
+	if _, ok := m.metrics[ik]; !ok {
+		m.metrics[ik] = distribution.NewRegularDistribution()
 	}
-	return m.metrics[keyStr].AddEntry(entry)
+	return m.metrics[ik].AddEntry(entry)
 }
 
 func (m *MetricAggregator) Flush() []types.MetricDatum {
@@ -94,7 +118,7 @@ func (m *MetricAggregator) Flush() []types.MetricDatum {
 	defer m.mu.Unlock()
 
 	datums := make([]types.MetricDatum, 0, len(m.metrics))
-	for keyStr, dist := range m.metrics {
+	for ik, dist := range m.metrics {
 		values, counts := dist.ValuesAndCounts()
 		s := types.StatisticSet{
 			Maximum:     aws.Float64(dist.Maximum()),
@@ -102,10 +126,9 @@ func (m *MetricAggregator) Flush() []types.MetricDatum {
 			SampleCount: aws.Float64(dist.SampleCount()),
 			Sum:         aws.Float64(dist.Sum()),
 		}
-		key := toKey(keyStr)
-		ds := append(m.dimensions, toDimensions(key.Dimensions)...)
+		ds := append(m.dimensions, fromDimensionStr(ik.dimensionStr)...)
 		datums = append(datums, types.MetricDatum{
-			MetricName:      aws.String(key.Name),
+			MetricName:      aws.String(ik.name),
 			Timestamp:       aws.Time(time.Now()),
 			Unit:            dist.Unit(),
 			Values:          values,
@@ -115,7 +138,7 @@ func (m *MetricAggregator) Flush() []types.MetricDatum {
 		})
 	}
 
-	m.metrics = make(map[string]distribution.Distribution)
+	m.metrics = make(map[internalKey]distribution.Distribution)
 	return datums
 }
 

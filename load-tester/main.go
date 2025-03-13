@@ -36,6 +36,7 @@ func main() {
 		go cancelAfter(ctx, &wg, cancel, cfg.Duration)
 	}
 
+	start := time.Now()
 	var m *monitor.Monitor
 	if cfg.Monitor != nil {
 		m, err = monitor.New(ctx, cfg.Monitor)
@@ -46,16 +47,21 @@ func main() {
 		go m.Run(ctx, &wg)
 	}
 
-	if cfg.LogGenerator != nil {
-		lg := loggenerator.New(cfg.LogGenerator)
-		if m != nil {
-			lg.SetReporter(m.MetricsReporter())
+	if len(cfg.LogGenerators) > 0 {
+		for _, generatorCfg := range cfg.LogGenerators {
+			lg := loggenerator.New(generatorCfg)
+			if m != nil {
+				lg.SetReporter(m.MetricsReporter())
+			}
+			wg.Add(1)
+			go lg.Run(ctx, &wg)
 		}
-		wg.Add(1)
-		go lg.Run(ctx, &wg)
 	}
 
 	wg.Wait()
+
+	end := time.Now()
+	log.Printf("Test ran between %v and %v", start, end)
 }
 
 func cancelAfter(ctx context.Context, wg *sync.WaitGroup, cancel context.CancelFunc, d time.Duration) {

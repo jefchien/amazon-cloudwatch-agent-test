@@ -1,0 +1,27 @@
+{
+  "agent": {
+    "debug": true
+  },
+  "logs": {
+    "logs_collected": {
+      "files": {
+        "collect_list": [
+          {
+            "file_path": "/home/ec2-user/loadtest/testdata/test*",
+            "log_group_name": "BenchmarkAgent",
+            "log_stream_name": "TestLog",
+            "retention_in_days": 1,
+            "timestamp_format": "%Y-%m-%dT%H:%M:%S.%f"
+          },
+          {
+            "file_path": "/home/ec2-user/loadtest/testdata/other*",
+            "log_group_name": "BenchmarkAgent",
+            "log_stream_name": "OtherLog",
+            "retention_in_days": 1,
+            "timestamp_format": "%Y-%m-%dT%H:%M:%S.%f"
+          }
+        ]
+      }
+    }
+  }
+}

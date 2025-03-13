@@ -13,9 +13,9 @@ import (
 )
 
 type Config struct {
-	Monitor      *monitor.Config `yaml:"monitor"`
-	LogGenerator *log.Config     `yaml:"log_generator"`
-	Duration     time.Duration   `yaml:"duration"`
+	Monitor       *monitor.Config `yaml:"monitor"`
+	LogGenerators []*log.Config   `yaml:"log_generators"`
+	Duration      time.Duration   `yaml:"duration"`
 }
 
 func (c *Config) Validate() error {
@@ -24,9 +24,11 @@ func (c *Config) Validate() error {
 			return err
 		}
 	}
-	if c.LogGenerator != nil {
-		if err := c.LogGenerator.Validate(); err != nil {
-			return err
+	if c.LogGenerators != nil {
+		for _, generator := range c.LogGenerators {
+			if err := generator.Validate(); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

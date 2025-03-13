@@ -5,25 +5,27 @@ package log
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"load-tester/generator/log/lumberjack"
 	"load-tester/monitor"
 	"load-tester/monitor/metrics/aggregator"
 	"load-tester/monitor/metrics/distribution"
 	"log"
 	"math/rand"
-	"os"
-	"path/filepath"
-	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	"golang.org/x/time/rate"
-	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+var (
+	writtenBytesKey = aggregator.Key{Name: "WrittenBytes"}
+	writtenEntries  = aggregator.Key{Name: "WrittenEntries"}
+)
 
 func generateRandomString(length int) string {
 	b := make([]byte, length)
@@ -34,11 +36,12 @@ func generateRandomString(length int) string {
 }
 
 type Generator struct {
-	cfg      *Config
-	logger   *lumberjack.Logger
-	limiter  *rate.Limiter
-	stats    *Stats
-	reporter monitor.MetricsReporter
+	cfg            *Config
+	logger         *lumberjack.Logger
+	limiter        *rate.Limiter
+	stats          *Stats
+	reporter       monitor.MetricsReporter
+	sequenceNumber atomic.Uint64
 }
 
 func New(cfg *Config) *Generator {
@@ -68,9 +71,6 @@ func (g *Generator) Run(ctx context.Context, wg *sync.WaitGroup) {
 
 	g.stats = NewStats()
 	go g.reportStats(ctx)
-	//if g.reporter != nil {
-	//    go g.reportFileSize(ctx)
-	//}
 
 	for {
 		select {
@@ -87,73 +87,6 @@ func (g *Generator) Run(ctx context.Context, wg *sync.WaitGroup) {
 	}
 }
 
-func (g *Generator) reportFileSize(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			sizes, err := g.getLogSizes()
-			if err != nil {
-				log.Printf("Error getting log sizes: %v", err)
-				continue
-			}
-			var errs []error
-			for name, size := range sizes {
-				err = g.reporter.Add(aggregator.Key{
-					Name: "FileSize",
-					Dimensions: map[string]string{
-						"FileName": name,
-					},
-				}, distribution.NewEntry(float64(size), types.StandardUnitBytes))
-				if err != nil {
-					errs = append(errs, err)
-				}
-			}
-			if len(errs) > 0 {
-				log.Printf("Error reporting log sizes: %v", errors.Join(errs...))
-			}
-		}
-	}
-}
-
-func (g *Generator) getLogSizes() (map[string]int64, error) {
-	dir := filepath.Dir(g.cfg.FilePath)
-	base := filepath.Base(g.cfg.FilePath)
-	ext := filepath.Ext(base)
-	prefix := strings.TrimSuffix(base, ext)
-
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, err
-	}
-	files := make(map[string]int64)
-	var errs []error
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		if !strings.HasPrefix(name, prefix) {
-			continue
-		}
-		var info os.FileInfo
-		info, err = entry.Info()
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		files[name] = info.Size()
-	}
-	if len(errs) > 0 {
-		return nil, errors.Join(errs...)
-	}
-	return files, nil
-}
-
 func (g *Generator) reportStats(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -168,9 +101,8 @@ func (g *Generator) reportStats(ctx context.Context) {
 				"(%.2f entries/sec, %.2f bytes/sec)", entries, bytes, errs,
 				float64(entries)/duration.Seconds(), float64(bytes)/duration.Seconds())
 			if g.reporter != nil {
-				_ = g.reporter.Add(aggregator.Key{
-					Name: "WrittenBytes",
-				}, distribution.NewEntry(float64(bytes), types.StandardUnitBytes))
+				_ = g.reporter.Add(writtenBytesKey, distribution.NewEntry(float64(bytes), types.StandardUnitBytes))
+				_ = g.reporter.Add(writtenEntries, distribution.NewEntry(float64(entries), types.StandardUnitCount))
 			}
 		}
 	}
@@ -184,6 +116,7 @@ func (g *Generator) writeEntry() error {
 
 func (g *Generator) generateLogEntry() string {
 	timestamp := time.Now().Format(g.cfg.TimestampFormat)
-	randomContent := generateRandomString(g.cfg.LineLength - len(timestamp) - 2)
-	return fmt.Sprintf("%s %s\n", timestamp, randomContent)
+	sequenceNumber := g.sequenceNumber.Add(1)
+	randomContent := generateRandomString(g.cfg.LineLength - len(timestamp) - 20)
+	return fmt.Sprintf("%s seq=%d %s\n", timestamp, sequenceNumber, randomContent)
 }

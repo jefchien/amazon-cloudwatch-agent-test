@@ -8,7 +8,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.44.0
 	github.com/shirou/gopsutil/v3 v3.24.5
 	golang.org/x/time v0.10.0
-	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v3 v3.0.1
 )
 

@@ -1,0 +1,78 @@
+exporters:
+  awscloudwatchlogs/test:
+    log_group_name: BenchmarkOtel
+    log_stream_name: TestLog
+    log_retention: 1
+    raw_log: true
+    region: us-east-1
+    sending_queue:
+      enabled: true
+      num_consumers: 5
+  awscloudwatchlogs/other:
+    log_group_name: BenchmarkOtel
+    log_stream_name: OtherLog
+    log_retention: 1
+    raw_log: true
+    region: us-east-1
+    sending_queue:
+      enabled: true
+      num_consumers: 5
+
+receivers:
+  filelog/test:
+    include: ["/home/ec2-user/loadtest/testdata/test*"]
+    start_at: beginning
+    operators:
+      - type: regex_parser
+        regex: (?P<timestamp_field>^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3})
+        timestamp:
+          layout: '%Y-%m-%dT%H:%M:%S.%f'
+          parse_from: attributes.timestamp_field
+      - type: remove
+        field: attributes.timestamp_field
+  filelog/other:
+    include: [ "/home/ec2-user/loadtest/testdata/other*" ]
+    start_at: beginning
+    operators:
+      - type: regex_parser
+        regex: (?P<timestamp_field>^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3})
+        timestamp:
+          layout: '%Y-%m-%dT%H:%M:%S.%f'
+          parse_from: attributes.timestamp_field
+      - type: remove
+        field: attributes.timestamp_field
+
+processors:
+  batch/logs/test:
+    timeout: 5s
+  batch/logs/other:
+    timeout: 5s
+
+service:
+  pipelines:
+    logs/test:
+      receivers: [filelog/test]
+      processors: [batch/logs/test]
+      exporters: [awscloudwatchlogs/test]
+    logs/other:
+      receivers: [filelog/other]
+      processors: [batch/logs/other]
+      exporters: [awscloudwatchlogs/other]
+  telemetry:
+    logs:
+      development: false
+      disable_caller: false
+      disable_stacktrace: false
+      encoding: console
+      level: debug
+      output_paths:
+        - /home/ec2-user/loadtest/otel.log
+      sampling:
+        enabled: true
+        initial: 2
+        thereafter: 500
+        tick: 10s
+    metrics:
+      level: None
+    traces:
+      level: None
