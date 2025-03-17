@@ -1,0 +1,22 @@
+process: aws-otel-collector
+process_alias: OTEL
+config_dir: /home/ec2-user/loadtest/configs
+load_tester:
+  binary_path: /home/ec2-user/loadtest/load-tester
+  log_path: /home/ec2-user/loadtest/out.log
+  timeout: 30m
+tests:
+  - tps: [100, 1000, 5000]
+    thread_counts: [1]
+    file_count: 1
+    duration: 10m
+    load_tester_config_template: /home/ec2-user/loadtest/template/config-single.yaml
+    process_config_templates:
+      - /home/ec2-user/loadtest/template/adot-single.yaml
+  - tps: [100, 1000, 5000]
+    thread_counts: [2, 5, 10]
+    file_count: 2
+    duration: 10m
+    load_tester_config_template: /home/ec2-user/loadtest/template/config-multiple.yaml
+    process_config_templates:
+      - /home/ec2-user/loadtest/template/adot-multiple.yaml

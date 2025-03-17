@@ -1,0 +1,27 @@
+monitor:
+  process_name: {{.ProcessName}}
+  metrics_namespace: LoadTest
+  region: us-east-1
+  collect_interval: 10s
+  flush_interval: 60s
+  dimensions:
+    Process: {{.ProcessAlias}}
+    Threads: {{.ThreadCount}}
+    TPS: {{.TPS}}
+    Files: {{.FileCount}}
+log_generators:
+  - file_path: /home/ec2-user/loadtest/testdata/test.log
+    timestamp_format: 2006-01-02T15:04:05.000
+    lines_per_second: {{.TPS}}
+    line_length: 1000
+    max_file_size: 100
+    max_file_count: 3
+    start_delay: 1m
+  - file_path: /home/ec2-user/loadtest/testdata/other.log
+    timestamp_format: 2006-01-02T15:04:05.000
+    lines_per_second: {{.TPS}}
+    line_length: 500
+    max_file_size: 50
+    max_file_count: 5
+    start_delay: 1m
+duration: 15m
