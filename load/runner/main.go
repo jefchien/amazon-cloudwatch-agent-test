@@ -53,6 +53,9 @@ func main() {
 		if err = cfg.LoadTester.Run(ctx, testCase.LoadTesterConfig); err != nil {
 			log.Fatalf("Failed to run test %d: %v", testID, err)
 		}
+		if err = manager.Stop(); err != nil {
+			log.Fatalf("Failed to stop process %d: %v", testID, err)
+		}
 		end := time.Now()
 		log.Printf("Test %d ran from %s to %s", testID, start, end)
 		time.Sleep(cfg.NextTestDelay)

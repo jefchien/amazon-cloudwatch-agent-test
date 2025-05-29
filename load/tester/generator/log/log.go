@@ -4,6 +4,7 @@
 package log
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"load-tester/generator/log/lumberjack"
@@ -53,7 +54,7 @@ func New(cfg *Config) *Generator {
 			MaxAge:     1,
 			MaxBackups: cfg.MaxFileCount,
 		},
-		limiter: rate.NewLimiter(rate.Limit(cfg.LinesPerSecond), cfg.MaxFileCount),
+		limiter: rate.NewLimiter(rate.Limit(cfg.BytesPerSecond), cfg.BytesPerSecond),
 	}
 }
 
@@ -73,14 +74,15 @@ func (g *Generator) Run(ctx context.Context, wg *sync.WaitGroup) {
 	go g.reportStats(ctx)
 
 	for {
+		entry := g.generateBatch()
 		select {
 		case <-ctx.Done():
 			return
 		default:
-			if err := g.limiter.Wait(ctx); err != nil {
+			if err := g.limiter.WaitN(ctx, len(entry)); err != nil {
 				continue
 			}
-			if err := g.writeEntry(); err != nil {
+			if err := g.write(entry); err != nil {
 				log.Printf("Error writing log entry to file: %v", err)
 			}
 		}
@@ -88,33 +90,42 @@ func (g *Generator) Run(ctx context.Context, wg *sync.WaitGroup) {
 }
 
 func (g *Generator) reportStats(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
+			log.Printf("Final sequence number was %d", g.sequenceNumber.Load())
 			return
 		case <-ticker.C:
-			bytes, entries, errs, duration := g.stats.GetAndReset()
+			b, entries, errs, duration := g.stats.GetAndReset()
 			log.Printf("Stats for last minute: wrote %d entries (%d bytes) with %d errors"+
-				"(%.2f entries/sec, %.2f bytes/sec)", entries, bytes, errs,
-				float64(entries)/duration.Seconds(), float64(bytes)/duration.Seconds())
+				"(%.2f entries/sec, %.2f bytes/sec)", entries, b, errs,
+				float64(entries)/duration.Seconds(), float64(b)/duration.Seconds())
 			if g.reporter != nil {
-				_ = g.reporter.Add(writtenBytesKey, distribution.NewEntry(float64(bytes), types.StandardUnitBytes))
+				_ = g.reporter.Add(writtenBytesKey, distribution.NewEntry(float64(b), types.StandardUnitBytes))
 				_ = g.reporter.Add(writtenEntries, distribution.NewEntry(float64(entries), types.StandardUnitCount))
 			}
 		}
 	}
 }
 
-func (g *Generator) writeEntry() error {
-	n, err := g.logger.Write([]byte(g.generateLogEntry()))
+func (g *Generator) write(entry []byte) error {
+	n, err := g.logger.Write(entry)
 	g.stats.Update(n, err)
 	return err
 }
 
-func (g *Generator) generateLogEntry() string {
+func (g *Generator) generateBatch() []byte {
+	var buf bytes.Buffer
+	for i := 0; i < g.cfg.BatchSize; i++ {
+		buf.WriteString(g.generateEntry())
+	}
+	return buf.Bytes()
+}
+
+func (g *Generator) generateEntry() string {
 	timestamp := time.Now().Format(g.cfg.TimestampFormat)
 	sequenceNumber := g.sequenceNumber.Add(1)
 	randomContent := generateRandomString(g.cfg.LineLength - len(timestamp) - 20)

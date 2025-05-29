@@ -1,3 +1,6 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: MIT
+
 // Package lumberjack provides a rolling logger.
 //
 // Note that this is v2.0 of lumberjack, and should be imported using gopkg.in
@@ -207,7 +210,7 @@ func (l *Logger) openNew() error {
 
 	name := l.filename()
 	name = backupName(name, l.LocalTime)
-	mode := os.FileMode(0600)
+	mode := os.FileMode(0644)
 
 	// we use truncate here because this should only get called when we've moved
 	// the file ourselves. if someone else creates the file in the meantime,
